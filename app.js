@@ -34,25 +34,25 @@ function persist() {
   try { localStorage.setItem("vousdeux", JSON.stringify({ A: S.A, B: S.B })); } catch (e) {}
 }
 
-/* Suivi des questions déjà jouées (pour ne pas les revoir avant d'avoir tout fait) */
+/* Suivi des questions déjà jouées (pour ne pas les revoir avant d'avoir tout fait).
+   IMPORTANT : on garde l'ensemble EN MÉMOIRE VIVE (seenSet), pas seulement dans le
+   localStorage. Ainsi, même si le localStorage est indisponible (navigation privée,
+   etc.), rejouer ne redonne JAMAIS les questions de la partie précédente.
+   Le localStorage sert juste de bonus pour s'en souvenir d'une session à l'autre. */
 const SEEN_KEY = "vousdeux_seen";
-function loadSeen() {
+function loadSeenFromStorage() {
   try { return new Set(JSON.parse(localStorage.getItem(SEEN_KEY) || "[]")); }
   catch (e) { return new Set(); }
 }
+let seenSet = loadSeenFromStorage(); // source de vérité, en mémoire
+
 function markSeen(list) {
-  const s = loadSeen();
-  list.forEach((q) => s.add(q));
-  try { localStorage.setItem(SEEN_KEY, JSON.stringify([...s])); } catch (e) {}
+  list.forEach((q) => seenSet.add(q));
+  try { localStorage.setItem(SEEN_KEY, JSON.stringify([...seenSet])); } catch (e) {}
 }
 function resetSeen() {
+  seenSet = new Set();
   try { localStorage.removeItem(SEEN_KEY); } catch (e) {}
-}
-/* Nombre de questions déjà vues parmi les thèmes choisis */
-function seenInSelectedCats() {
-  const seen = loadSeen();
-  const pool = QUESTIONS.filter((q) => S.cats.has(q.cat));
-  return { seen: pool.filter((q) => seen.has(q.q)).length, total: pool.length };
 }
 
 /* Qui répond / qui devine selon la manche */
@@ -72,8 +72,7 @@ function shuffle(arr) {
 function buildDeck() {
   const pool = QUESTIONS.filter((q) => S.cats.has(q.cat));
   const n = Math.min(S.count, pool.length);
-  const seen = loadSeen();
-  const unseen = pool.filter((q) => !seen.has(q.q));
+  const unseen = pool.filter((q) => !seenSet.has(q.q));
 
   let chosen;
   if (unseen.length >= n) {
@@ -82,7 +81,7 @@ function buildDeck() {
   } else {
     // plus assez de nouvelles → on prend toutes les nouvelles + on complète avec des anciennes
     const need = n - unseen.length;
-    const reused = shuffle(pool.filter((q) => seen.has(q.q))).slice(0, need);
+    const reused = shuffle(pool.filter((q) => seenSet.has(q.q))).slice(0, need);
     chosen = shuffle(unseen.concat(reused));
   }
 
@@ -139,7 +138,7 @@ function screenHome() {
   };
 
   // Compteur de progression + bouton remise à zéro
-  const seenCount = loadSeen().size;
+  const seenCount = seenSet.size;
   const seenLine = document.getElementById("seenLine");
   if (seenCount > 0) {
     seenLine.innerHTML = `<span>🎯 ${seenCount} / ${QUESTIONS.length} questions déjà jouées</span>
@@ -409,7 +408,7 @@ function screenResults() {
       <button class="btn" id="replay">Rejouer (nouvelles questions 🎲)</button>
       <button class="btn secondary" id="recap">Voir le détail des réponses</button>
       <button class="btn ghost" id="home">Changer les joueurs / réglages</button>
-      <div class="seen-line">🎯 ${loadSeen().size} / ${QUESTIONS.length} questions jouées
+      <div class="seen-line">🎯 ${seenSet.size} / ${QUESTIONS.length} questions jouées
         <button class="reset-link" id="resetR">🔄 Remettre à zéro</button></div>
     </div>
   `;
