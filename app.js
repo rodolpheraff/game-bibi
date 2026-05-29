@@ -12,7 +12,7 @@ const S = {
   screen: "home",
   A: "",
   B: "",
-  count: 12,
+  count: 20,
   cats: new Set(["amour", "fun", "profond", "couple"]),
   deck: [],
   round: 1,
@@ -34,6 +34,27 @@ function persist() {
   try { localStorage.setItem("vousdeux", JSON.stringify({ A: S.A, B: S.B })); } catch (e) {}
 }
 
+/* Suivi des questions déjà jouées (pour ne pas les revoir avant d'avoir tout fait) */
+const SEEN_KEY = "vousdeux_seen";
+function loadSeen() {
+  try { return new Set(JSON.parse(localStorage.getItem(SEEN_KEY) || "[]")); }
+  catch (e) { return new Set(); }
+}
+function markSeen(list) {
+  const s = loadSeen();
+  list.forEach((q) => s.add(q));
+  try { localStorage.setItem(SEEN_KEY, JSON.stringify([...s])); } catch (e) {}
+}
+function resetSeen() {
+  try { localStorage.removeItem(SEEN_KEY); } catch (e) {}
+}
+/* Nombre de questions déjà vues parmi les thèmes choisis */
+function seenInSelectedCats() {
+  const seen = loadSeen();
+  const pool = QUESTIONS.filter((q) => S.cats.has(q.cat));
+  return { seen: pool.filter((q) => seen.has(q.q)).length, total: pool.length };
+}
+
 /* Qui répond / qui devine selon la manche */
 function truthPerson() { return S.round === 1 ? S.A : S.B; }
 function guessPerson() { return S.round === 1 ? S.B : S.A; }
@@ -50,10 +71,24 @@ function shuffle(arr) {
 
 function buildDeck() {
   const pool = QUESTIONS.filter((q) => S.cats.has(q.cat));
-  S.deck = shuffle(pool).slice(0, Math.min(S.count, pool.length)).map((q) => ({
-    ...q,
-    o: shuffle(q.o), // on mélange aussi l'ordre des choix → encore plus de rejouabilité
-  }));
+  const n = Math.min(S.count, pool.length);
+  const seen = loadSeen();
+  const unseen = pool.filter((q) => !seen.has(q.q));
+
+  let chosen;
+  if (unseen.length >= n) {
+    // assez de questions jamais vues : on pioche dedans
+    chosen = shuffle(unseen).slice(0, n);
+  } else {
+    // plus assez de nouvelles → on prend toutes les nouvelles + on complète avec des anciennes
+    const need = n - unseen.length;
+    const reused = shuffle(pool.filter((q) => seen.has(q.q))).slice(0, need);
+    chosen = shuffle(unseen.concat(reused));
+  }
+
+  // on mélange aussi l'ordre des choix → encore plus de rejouabilité
+  S.deck = chosen.map((q) => ({ ...q, o: shuffle(q.o) }));
+  markSeen(S.deck.map((q) => q.q)); // ces questions sont maintenant "vues"
 }
 
 function go(screen) { S.screen = screen; render(); }
@@ -86,6 +121,7 @@ function screenHome() {
       <label for="nB">Joueur B</label>
       <input id="nB" type="text" placeholder="Prénom..." value="${esc(S.B)}" maxlength="14" autocomplete="off">
       <button class="btn" id="next">Continuer →</button>
+      <div class="seen-line" id="seenLine"></div>
     </div>
     <div class="footer-note">Sur un seul téléphone · à tour de rôle 🤝</div>
   `;
@@ -101,11 +137,25 @@ function screenHome() {
     persist();
     go("setup");
   };
+
+  // Compteur de progression + bouton remise à zéro
+  const seenCount = loadSeen().size;
+  const seenLine = document.getElementById("seenLine");
+  if (seenCount > 0) {
+    seenLine.innerHTML = `<span>🎯 ${seenCount} / ${QUESTIONS.length} questions déjà jouées</span>
+      <button class="reset-link" id="reset">🔄 Tout remettre à zéro</button>`;
+    document.getElementById("reset").onclick = () => {
+      if (confirm("Remettre toutes les questions à zéro ? Vous pourrez retomber sur les questions déjà jouées.")) {
+        resetSeen();
+        screenHome();
+      }
+    };
+  }
 }
 
 /* ---------- Réglages : nombre de questions + catégories ---------- */
 function screenSetup() {
-  const counts = [6, 12, 18];
+  const counts = [10, 20, 40];
   const catRows = Object.entries(CATEGORIES).map(([key, c]) => {
     const on = S.cats.has(key);
     return `<div class="cat-row ${on ? "on" : ""}" data-cat="${key}" style="color:${c.color}">
@@ -359,6 +409,8 @@ function screenResults() {
       <button class="btn" id="replay">Rejouer (nouvelles questions 🎲)</button>
       <button class="btn secondary" id="recap">Voir le détail des réponses</button>
       <button class="btn ghost" id="home">Changer les joueurs / réglages</button>
+      <div class="seen-line">🎯 ${loadSeen().size} / ${QUESTIONS.length} questions jouées
+        <button class="reset-link" id="resetR">🔄 Remettre à zéro</button></div>
     </div>
   `;
 
@@ -378,6 +430,9 @@ function screenResults() {
   };
   document.getElementById("recap").onclick = () => go("recap");
   document.getElementById("home").onclick = () => go("home");
+  document.getElementById("resetR").onclick = () => {
+    if (confirm("Remettre toutes les questions à zéro ?")) { resetSeen(); go("home"); }
+  };
 }
 
 /* ---------- Récap détaillé ---------- */

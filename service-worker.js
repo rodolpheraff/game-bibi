@@ -1,6 +1,6 @@
 /* Service worker — permet de jouer hors-ligne une fois la page chargée.
    Pense à incrémenter VERSION quand tu modifies des fichiers, pour forcer la mise à jour. */
-const VERSION = "vousdeux-v2";
+const VERSION = "vousdeux-v3";
 const ASSETS = [
   "./",
   "index.html",
